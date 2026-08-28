@@ -1,4 +1,4 @@
-name: Build macOS (x86_64)
+name: Build macOS (Universal Binary)
 
 on:
   push:
@@ -9,8 +9,7 @@ on:
 
 jobs:
   build-macos:
-    # macos-13 использует архитектуру Intel x86_64
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -35,14 +34,31 @@ jobs:
           npm install
           npm run build
 
-      - name: Build Go binary (Darwin x86_64)
-        env:
-          CGO_ENABLED: 1
-          GOOS: darwin
-          GOARCH: amd64
+      - name: Build macOS Universal Binary (x86_64 + ARM64)
         run: |
           go mod tidy
-          go build -ldflags="-s -w" -o context-builder main.go
+
+          echo "Компиляция под Intel (x86_64)..."
+          CGO_ENABLED=1 \
+          GOOS=darwin \
+          GOARCH=amd64 \
+          CC="clang -target x86_64-apple-macos10.15" \
+          CXX="clang++ -target x86_64-apple-macos10.15" \
+          go build -ldflags="-s -w" -o context-builder-amd64 main.go
+
+          echo "Компиляция под Apple Silicon (ARM64)..."
+          CGO_ENABLED=1 \
+          GOOS=darwin \
+          GOARCH=arm64 \
+          CC="clang -target arm64-apple-macos11" \
+          CXX="clang++ -target arm64-apple-macos11" \
+          go build -ldflags="-s -w" -o context-builder-arm64 main.go
+
+          echo "Склеивание в Universal Binary..."
+          lipo -create -output context-builder context-builder-amd64 context-builder-arm64
+          
+          # Проверяем архитектуры внутри итогового файла
+          file context-builder
 
       - name: Bundle into macOS .app
         run: |
@@ -50,11 +66,9 @@ jobs:
           mkdir -p "$APP_NAME/Contents/MacOS"
           mkdir -p "$APP_NAME/Contents/Resources"
 
-          # Перемещаем скомпилированный бинарник
           mv context-builder "$APP_NAME/Contents/MacOS/context-builder"
           chmod +x "$APP_NAME/Contents/MacOS/context-builder"
 
-          # Создаем базовый Info.plist
           cat <<EOF > "$APP_NAME/Contents/Info.plist"
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,19 +92,18 @@ jobs:
           </plist>
           EOF
 
-          # Архивируем бандл
-          zip -r ContextBuilder-macos-x86_64.zip "$APP_NAME"
+          zip -r ContextBuilder-macOS-Universal.zip "$APP_NAME"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ContextBuilder-macOS-x86
-          path: ContextBuilder-macos-x86_64.zip
+          name: ContextBuilder-macOS-Universal
+          path: ContextBuilder-macOS-Universal.zip
 
       - name: Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ContextBuilder-macos-x86_64.zip
+          files: ContextBuilder-macOS-Universal.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
