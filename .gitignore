@@ -1,0 +1,15 @@
+# Бинарники и сборка Go
+*.exe
+*.exe~
+context-builder
+build/
+
+# Node & Angular
+node_modules/
+frontend/dist/
+frontend/out/
+
+# Логи и временные файлы
+*.log
+.DS_Store
+Thumbs.db
